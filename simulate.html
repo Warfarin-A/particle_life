@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Particle Life</title>
+    <style>
+        canvas {
+            background-color: black;
+            display: block;
+            margin: 0 auto;
+        }
+        #matrix-container {
+            display: flex;
+            justify-content: center;
+            margin-top: 20px;
+        }
+        .matrix {
+            margin: 0 20px;
+            font-family: Arial, sans-serif;
+        }
+        .matrix h3 {
+            text-align: center;
+        }
+        #control-container {
+            display: flex;
+            justify-content: center;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="particleCanvas" width="600" height="600"></canvas>
+    <div id="matrix-container">
+        <div class="matrix" id="maxDisMatrix">
+            <h3>maxDis</h3>
+            <pre id="maxDisContent"></pre>
+        </div>
+        <div class="matrix" id="minDisMatrix">
+            <h3>minDis</h3>
+            <pre id="minDisContent"></pre>
+        </div>
+        <div class="matrix" id="fWeightsMatrix">
+            <h3>fWeights</h3>
+            <pre id="fWeightsContent"></pre>
+        </div>
+    </div>
+    <div id="control-container">
+        <button id="setParamButton">Set Parameters</button>
+    </div>
+    <script>
+        const canvas = document.getElementById('particleCanvas');
+        const ctx = canvas.getContext('2d');
+
+        const friction = 0.53;
+        const numTypes = 6;
+        const colorSteps = 360 / numTypes;
+        const numParticles = 1300;
+        const swarm = Array(numParticles).fill(null);
+        const width = canvas.width;
+        const height = canvas.height;
+        const repulseScale = -3;
+        const dt = 0.25;
+        
+        const minDis = Array(numTypes).fill().map(() => Array(numTypes).fill(0));
+        const fWeights = Array(numTypes).fill().map(() => Array(numTypes).fill(0));
+        const maxDis = Array(numTypes).fill().map(() => Array(numTypes).fill(0));
+
+        function setParam(matrix, lower, upper) {
+            for (let i = 0; i < numTypes; i++) {
+                for (let j = 0; j < numTypes; j++) {
+                    matrix[i][j] = Math.random() * (upper - lower) + lower;
+                }
+            }
+        }
+
+        class Particle {
+            constructor(width, height) {
+                this.position = [Math.random() * width, Math.random() * height];
+                this.velocity = [0, 0];
+                this.type = Math.floor(Math.random() * numTypes);
+            }
+
+            display() {
+                const color = `hsl(${this.type * colorSteps}, 100%, 73%)`;
+                ctx.fillStyle = color;
+                ctx.beginPath();
+                ctx.arc(this.position[0], this.position[1], 1, 0, 2 * Math.PI);
+                ctx.fill();
+            }
+
+            update() {
+                let Ftot = [0, 0];
+                for (let p of swarm) {
+                    if (!arrayEqual(p.position, this.position)) {
+                        let direction = [p.position[0] - this.position[0], p.position[1] - this.position[1]];
+                        if (direction[0] > 0.5 * width) direction[0] -= width;
+                        if (direction[0] < -0.5 * width) direction[0] += width;
+                        if (direction[1] > 0.5 * height) direction[1] -= height;
+                        if (direction[1] < -0.5 * height) direction[1] += height;
+
+                        let d = Math.sqrt(direction[0]**2 + direction[1]**2);
+                        if (d !== 0) {
+                            direction = [direction[0] / d, direction[1] / d];
+                        }
+
+                        let repulse = [0, 0];
+                        if (d < minDis[this.type][p.type]) {
+                            repulse = [direction[0] * Math.abs(fWeights[this.type][p.type]) * repulseScale * (minDis[this.type][p.type] - d) / minDis[this.type][p.type],
+                                       direction[1] * Math.abs(fWeights[this.type][p.type]) * repulseScale * (minDis[this.type][p.type] - d) / minDis[this.type][p.type]];
+                        }
+
+                        let interact = [0, 0];
+                        if (d < maxDis[this.type][p.type]) {
+                            interact = [direction[0] * fWeights[this.type][p.type] * (maxDis[this.type][p.type] - d) / maxDis[this.type][p.type],
+                                        direction[1] * fWeights[this.type][p.type] * (maxDis[this.type][p.type] - d) / maxDis[this.type][p.type]];
+                        }
+
+                        const force = [repulse[0] + interact[0], repulse[1] + interact[1]];
+                        Ftot[0] += force[0];
+                        Ftot[1] += force[1];
+                    }
+                }
+                let preV = this.velocity;
+                this.velocity[0] += Ftot[0] * dt;
+                this.velocity[1] += Ftot[1] * dt;
+                let avgx =(this.velocity[0] + preV[0])/2
+                let avgy =(this.velocity[1] + preV[1])/2
+                
+                this.position[0] = (this.position[0] + avgx * dt + width) % width;
+                this.position[1] = (this.position[1] + avgy * dt + height) % height;
+                this.velocity[0] *= friction;
+                this.velocity[1] *= friction;
+            }
+        }
+
+        function arrayEqual(a, b) {
+            return a.length === b.length && a.every((val, index) => val === b[index]);
+        }
+
+        function setup() {
+            for (let i = 0; i < numParticles; i++) {
+                swarm[i] = new Particle(width, height);
+            }
+
+            setParam(maxDis, 120, 150); 
+            setParam(fWeights, -0.3, 0.6);
+            setParam(minDis, 22, 32);
+            updateMatrixDisplays();
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, width, height);
+            for (let p of swarm) {
+                p.update();
+                p.display();
+            }
+            requestAnimationFrame(draw);
+        }
+
+        function updateMatrixDisplays() {
+            document.getElementById('maxDisContent').textContent = matrixToString(maxDis);
+            document.getElementById('minDisContent').textContent = matrixToString(minDis);
+            document.getElementById('fWeightsContent').textContent = matrixToString(fWeights);
+        }
+
+        function matrixToString(matrix) {
+            return matrix.map(row => row.map(val => val.toFixed(2)).join(' ')).join('\n');
+        }
+
+        document.getElementById('setParamButton').addEventListener('click', () => {
+            setParam(maxDis, 120, 200);
+            setParam(fWeights, -0.3, 0.6);
+            setParam(minDis, 23, 33);
+            updateMatrixDisplays();
+        });
+
+        setup();
+        draw();
+    </script>
+</body>
+</html>
